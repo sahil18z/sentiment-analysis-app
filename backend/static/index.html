@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Sentiment Analysis</title>
+    <style>
+        /* Reset and base */
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #e9f0f7;
+            /* changed here */
+            color: #333;
+            text-align: center;
+            margin: 40px 10px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 25px;
+            letter-spacing: 1.5px;
+        }
+
+        textarea {
+            width: 90%;
+            max-width: 700px;
+            padding: 15px 20px;
+            font-size: 18px;
+            border-radius: 10px;
+            border: 1.5px solid #ccc;
+            resize: vertical;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+            transition: border-color 0.3s ease;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 8px rgba(52, 152, 219, 0.5);
+            background-color: #fff;
+        }
+
+        button {
+            margin-top: 20px;
+            padding: 12px 40px;
+            font-size: 18px;
+            font-weight: 600;
+            border-radius: 30px;
+            border: none;
+            cursor: pointer;
+            background: linear-gradient(135deg, #2980b9, #6dd5fa);
+            color: white;
+            box-shadow: 0 5px 15px rgba(41, 128, 185, 0.4);
+            transition: background 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            box-shadow: none;
+            color: #7f8c8d;
+        }
+
+        button:hover:not(:disabled) {
+            background: linear-gradient(135deg, #3498db, #56ccf2);
+            box-shadow: 0 7px 20px rgba(52, 152, 219, 0.6);
+        }
+
+        .result {
+            margin-top: 30px;
+            font-size: 24px;
+            font-weight: 700;
+            padding: 10px 20px;
+            border-radius: 12px;
+            width: fit-content;
+            min-width: 280px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            user-select: none;
+            transition: background-color 0.3s ease;
+        }
+
+        /* Sentiment colors */
+        .result.positive {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1.5px solid #c3e6cb;
+        }
+
+        .result.negative {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1.5px solid #f5c6cb;
+        }
+
+        .result.neutral {
+            background-color: #e2e3e5;
+            color: #383d41;
+            border: 1.5px solid #d6d8db;
+        }
+
+        #history {
+            margin-top: 50px;
+            max-width: 700px;
+            width: 90%;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            padding: 25px 35px;
+        }
+
+        #history h2 {
+            margin-bottom: 20px;
+            color: #34495e;
+            font-weight: 700;
+            font-size: 26px;
+            letter-spacing: 1px;
+        }
+
+        #historyList {
+            list-style-type: none;
+            padding: 0;
+            max-height: 300px;
+            overflow-y: auto;
+            border-top: 1px solid #ddd;
+        }
+
+        #historyList li {
+            border-bottom: 1px solid #eee;
+            padding: 10px 0;
+            font-size: 18px;
+            word-wrap: break-word;
+            transition: background-color 0.2s ease;
+            border-radius: 6px;
+        }
+
+        #historyList li:hover {
+            background-color: #f0f4f8;
+        }
+
+        /* History colors */
+        #historyList li.positive {
+            color: #27ae60;
+            font-weight: 600;
+        }
+
+        #historyList li.negative {
+            color: #c0392b;
+            font-weight: 600;
+        }
+
+        #historyList li.neutral {
+            color: #7f8c8d;
+            font-weight: 600;
+        }
+
+        /* Scrollbar styling for history */
+        #historyList::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #historyList::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        #historyList::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+
+        #historyList::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Sentiment Analysis App</h1>
+    <textarea id="textInput" rows="5" placeholder="Type your text here..."></textarea><br>
+    <button id="analyzeBtn">Analyze</button>
+    <div id="result" class="result neutral"></div>
+
+    <!-- CSV Upload Section -->
+    <br><br>
+    <input type="file" id="csvFileInput" accept=".csv" />
+    <button id="uploadCsvBtn">Upload & Analyze CSV</button>
+    <div id="batchResult" class="result neutral" style="margin-top: 20px;"></div>
+
+    <div id="history">
+        <h2>History</h2>
+        <ul id="historyList"></ul>
+    </div>
+
+    <script>
+        async function analyze() {
+            const btn = document.getElementById('analyzeBtn');
+            const out = document.getElementById('result');
+            btn.disabled = true;
+            btn.textContent = 'Analyzing...';
+            out.style.color = '';
+            out.className = 'result neutral';
+            out.textContent = '';
+
+            const text = document.getElementById('textInput').value || '';
+            try {
+                const res = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                if (!res.ok) throw new Error('Server returned ' + res.status);
+                const data = await res.json();
+
+                let colorClass = 'neutral';
+                if (data.sentiment === 'Positive') colorClass = 'positive';
+                else if (data.sentiment === 'Negative') colorClass = 'negative';
+
+                out.className = `result ${colorClass}`;
+                out.textContent = `${data.sentiment} (${data.confidence.toFixed(2)}%)`;
+
+                // Reload history after analysis
+                loadHistory();
+            } catch (err) {
+                out.className = 'result negative';
+                out.textContent = 'Error: ' + err.message;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Analyze';
+            }
+        }
+
+        async function uploadAndAnalyzeCSV() {
+            const input = document.getElementById('csvFileInput');
+            const batchResult = document.getElementById('batchResult');
+            const uploadBtn = document.getElementById('uploadCsvBtn');
+
+            if (!input.files.length) {
+                batchResult.className = 'result negative';
+                batchResult.textContent = 'Please select a CSV file first.';
+                return;
+            }
+
+            const file = input.files[0];
+
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Uploading...';
+            batchResult.className = 'result neutral';
+            batchResult.textContent = '';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/batch_analyze', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!res.ok) throw new Error('Server returned ' + res.status);
+
+                const data = await res.json();
+
+                if (!data.results || !data.results.length) {
+                    batchResult.className = 'result negative';
+                    batchResult.textContent = 'No valid text found in CSV.';
+                } else {
+                    batchResult.className = 'result positive';
+                    batchResult.innerHTML = `<strong>Batch Analysis Completed:</strong><br>${data.results.map(r =>
+                        `"${r.text}" — <span style="color:${r.sentiment === 'Positive' ? 'green' : r.sentiment === 'Negative' ? 'red' : 'grey'}">${r.sentiment} (${r.confidence.toFixed(2)}%)</span>`
+                    ).join('<br>')}`;
+                }
+
+                // Refresh history to include batch results
+                loadHistory();
+
+            } catch (err) {
+                batchResult.className = 'result negative';
+                batchResult.textContent = 'Error: ' + err.message;
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Upload & Analyze CSV';
+                input.value = ''; // reset file input
+            }
+        }
+
+        async function loadHistory() {
+            try {
+                const res = await fetch('/history');
+                if (!res.ok) throw new Error('Could not fetch history');
+                const data = await res.json();
+                const list = document.getElementById('historyList');
+                list.innerHTML = '';
+                data.history.slice().reverse().forEach(item => {
+                    const li = document.createElement('li');
+                    li.textContent = `"${item.text}" — ${item.sentiment} (${item.confidence}%)`;
+                    li.className = item.sentiment.toLowerCase();
+                    list.appendChild(li);
+                });
+            } catch (err) {
+                console.error('History load error:', err);
+            }
+        }
+
+        document.getElementById('analyzeBtn').addEventListener('click', analyze);
+        document.getElementById('uploadCsvBtn').addEventListener('click', uploadAndAnalyzeCSV);
+        window.onload = loadHistory;
+    </script>
+</body>
+
+</html>
