@@ -14,7 +14,6 @@
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: #e9f0f7;
-            /* changed here */
             color: #333;
             text-align: center;
             margin: 40px 10px;
@@ -116,6 +115,7 @@
             border-radius: 15px;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
             padding: 25px 35px;
+            text-align: left;
         }
 
         #history h2 {
@@ -124,6 +124,7 @@
             font-weight: 700;
             font-size: 26px;
             letter-spacing: 1px;
+            text-align: center;
         }
 
         #historyList {
@@ -190,7 +191,6 @@
     <button id="analyzeBtn">Analyze</button>
     <div id="result" class="result neutral"></div>
 
-    <!-- CSV Upload Section -->
     <br><br>
     <input type="file" id="csvFileInput" accept=".csv" />
     <button id="uploadCsvBtn">Upload & Analyze CSV</button>
@@ -202,23 +202,33 @@
     </div>
 
     <script>
+        // API base URL — set to empty string if backend is same origin
+        const API_BASE = "http://localhost:8000";
+
+
         async function analyze() {
             const btn = document.getElementById('analyzeBtn');
             const out = document.getElementById('result');
             btn.disabled = true;
             btn.textContent = 'Analyzing...';
-            out.style.color = '';
             out.className = 'result neutral';
             out.textContent = '';
 
-            const text = document.getElementById('textInput').value || '';
+            const text = document.getElementById('textInput').value.trim();
+            if (!text) {
+                out.textContent = 'Please enter text.';
+                btn.disabled = false;
+                btn.textContent = 'Analyze';
+                return;
+            }
+
             try {
-                const res = await fetch('http://localhost:8000/analyze', {
+                const res = await fetch(`${API_BASE}/analyze`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text })
                 });
-                if (!res.ok) throw new Error('Server returned ' + res.status);
+                if (!res.ok) throw new Error(`Server returned ${res.status}`);
                 const data = await res.json();
 
                 let colorClass = 'neutral';
@@ -228,7 +238,6 @@
                 out.className = `result ${colorClass}`;
                 out.textContent = `${data.sentiment} (${data.confidence.toFixed(2)}%)`;
 
-                // Reload history after analysis
                 loadHistory();
             } catch (err) {
                 out.className = 'result negative';
@@ -261,12 +270,12 @@
             formData.append('file', file);
 
             try {
-                const res = await fetch('http://localhost:8000/batch_analyze', {
+                const res = await fetch(`${API_BASE}/batch_analyze`, {
                     method: 'POST',
                     body: formData,
                 });
 
-                if (!res.ok) throw new Error('Server returned ' + res.status);
+                if (!res.ok) throw new Error(`Server returned ${res.status}`);
 
                 const data = await res.json();
 
@@ -280,7 +289,6 @@
                     ).join('<br>')}`;
                 }
 
-                // Refresh history to include batch results
                 loadHistory();
 
             } catch (err) {
@@ -289,13 +297,13 @@
             } finally {
                 uploadBtn.disabled = false;
                 uploadBtn.textContent = 'Upload & Analyze CSV';
-                input.value = ''; // reset file input
+                input.value = '';
             }
         }
 
         async function loadHistory() {
             try {
-                const res = await fetch('http://localhost:8000/history');
+                const res = await fetch(`${API_BASE}/history`);
                 if (!res.ok) throw new Error('Could not fetch history');
                 const data = await res.json();
                 const list = document.getElementById('historyList');
