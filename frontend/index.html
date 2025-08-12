@@ -213,7 +213,7 @@
 
             const text = document.getElementById('textInput').value || '';
             try {
-                const res = await fetch('/analyze', {
+                const res = await fetch('http://localhost:8000/analyze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text })
@@ -261,7 +261,7 @@
             formData.append('file', file);
 
             try {
-                const res = await fetch('/batch_analyze', {
+                const res = await fetch('http://localhost:8000/batch_analyze', {
                     method: 'POST',
                     body: formData,
                 });
@@ -295,7 +295,7 @@
 
         async function loadHistory() {
             try {
-                const res = await fetch('/history');
+                const res = await fetch('http://localhost:8000/history');
                 if (!res.ok) throw new Error('Could not fetch history');
                 const data = await res.json();
                 const list = document.getElementById('historyList');
