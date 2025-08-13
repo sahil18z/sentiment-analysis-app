@@ -12,26 +12,24 @@ import os
 
 app = FastAPI()
 
-# Enable CORS (adjust origins for production)
+# Enable CORS for all origins (adjust in production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # restrict this in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
+# Request body schema for single text analyze
 class TextData(BaseModel):
     text: str
 
 # Globals
 sentiment_pipeline = None
-history = []
 positive_words = set()
 negative_words = set()
-
+history = []
 executor = ThreadPoolExecutor(max_workers=4)
 
 def load_word_list(file_path):
@@ -40,7 +38,7 @@ def load_word_list(file_path):
         with open(file_path, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
-                if line and not line.startswith(';'):
+                if line and not line.startswith(';'):  # ignore comments in lexicon
                     words.add(line.lower())
     except UnicodeDecodeError:
         with open(file_path, 'r', encoding='latin-1') as f:
@@ -54,85 +52,86 @@ def load_word_list(file_path):
 def startup_event():
     global sentiment_pipeline, positive_words, negative_words
     sentiment_pipeline = pipeline("sentiment-analysis")
-    positive_words = load_word_list(os.path.join(BASE_DIR, "lexicon/positive-words.txt"))
-    negative_words = load_word_list(os.path.join(BASE_DIR, "lexicon/negative-words.txt"))
+    lex_path = os.path.join(os.path.dirname(__file__), "lexicon")
+    positive_words.update(load_word_list(os.path.join(lex_path, "positive-words.txt")))
+    negative_words.update(load_word_list(os.path.join(lex_path, "negative-words.txt")))
 
-def basic_sentiment_logic(text: str):
+
+def lexicon_sentiment(text: str):
     text_lower = text.lower()
-    tokens = set(text_lower.split())
+    tokens = text_lower.split()
 
-    # Neutral keywords heuristic
-    neutral_keywords = ["neutral", "okay", "fine", "so-so", "don't know", "not sure", "maybe"]
-    if any(kw in text_lower for kw in neutral_keywords):
-        return "Neutral", 80.0
+    positive_indices = [i for i, t in enumerate(tokens) if t in positive_words]
+    negative_indices = [i for i, t in enumerate(tokens) if t in negative_words]
 
-    # Negation handling examples
-    if "not good" in text_lower:
-        return "Negative", 95.0
-    if "not bad" in text_lower or "not sad" in text_lower:
+    def is_negated(index):
+        # Check if "not", "no", or "never" is immediately before the word (simple negation)
+        if index == 0:
+            return False
+        return tokens[index - 1] in {"not", "no", "never"}
+
+    pos_count = 0
+    neg_count = 0
+
+    # Count positives with negation flipping sentiment
+    for i in positive_indices:
+        if is_negated(i):
+            neg_count += 1
+        else:
+            pos_count += 1
+
+    # Count negatives with negation flipping sentiment
+    for i in negative_indices:
+        if is_negated(i):
+            pos_count += 1
+        else:
+            neg_count += 1
+
+    # Decide final sentiment based on counts
+    if pos_count > neg_count:
         return "Positive", 90.0
-
-    has_pos = bool(tokens.intersection(positive_words))
-    has_neg = bool(tokens.intersection(negative_words))
-
-    # Invert sentiment if "not" precedes positive/negative word, e.g. "not good" = Negative
-    # Your current basic logic handles only a few explicit cases above.
-
-    if has_pos and not has_neg:
-        return "Positive", 90.0
-    if has_neg and not has_pos:
+    elif neg_count > pos_count:
         return "Negative", 90.0
+    elif pos_count == neg_count and pos_count > 0:
+        # If equal counts but non-zero, consider neutral
+        return "Neutral", 50.0
 
-    return None, None  # fallback to model
+    # No sentiment words found
+    return None, None
 
+
+# Async wrapper for pipeline call
 async def async_sentiment_analysis(text: str):
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(executor, sentiment_pipeline, text)
     return result[0] if result else None
 
+# Single text analyze endpoint
 @app.post("/analyze")
 async def analyze_sentiment(data: TextData):
     if sentiment_pipeline is None:
         return {"error": "Model not ready"}, 503
 
-    sentiment, confidence = basic_sentiment_logic(data.text)
+    sentiment, confidence = lexicon_sentiment(data.text)
     if sentiment is None:
-        # fallback to model
         result = await async_sentiment_analysis(data.text)
         if result is None:
             return {"error": "Sentiment analysis failed"}, 500
+        sentiment = result.get("label", "Neutral").capitalize()
+        confidence = round(result.get("score", 0) * 100, 2)
 
-        raw_label = result.get("label", "").upper()
-        score = result.get("score", 0)
-
-        if score < 0.6:
-            sentiment = "Neutral"
-        else:
-            if raw_label == "POSITIVE":
-                sentiment = "Positive"
-            elif raw_label == "NEGATIVE":
-                sentiment = "Negative"
-            else:
-                sentiment = "Neutral"
-        confidence = round(score * 100, 2)
-
-    history.append({
-        "text": data.text,
-        "sentiment": sentiment,
-        "confidence": confidence
-    })
+    history.append({"text": data.text, "sentiment": sentiment, "confidence": confidence})
 
     return {"sentiment": sentiment, "confidence": confidence}
 
+# Batch CSV analyze endpoint
 @app.post("/batch_analyze")
 async def batch_analyze(file: UploadFile = File(...)):
     if sentiment_pipeline is None:
         return {"error": "Model not ready"}, 503
 
     content = await file.read()
-    detected = chardet.detect(content)
-    encoding = detected['encoding'] or 'utf-8'
-
+    encoding = chardet.detect(content)['encoding'] or 'utf-8'
     try:
         decoded = content.decode(encoding)
     except UnicodeDecodeError:
@@ -145,14 +144,11 @@ async def batch_analyze(file: UploadFile = File(...)):
     tasks = []
     fallback_indices = []
 
+    # Run lexicon sentiment first; if none, queue model analysis
     for i, text in enumerate(texts):
-        sentiment, confidence = basic_sentiment_logic(text)
+        sentiment, confidence = lexicon_sentiment(text)
         if sentiment is not None:
-            results.append({
-                "text": text,
-                "sentiment": sentiment,
-                "confidence": confidence
-            })
+            results.append({"text": text, "sentiment": sentiment, "confidence": confidence})
         else:
             results.append(None)  # placeholder
             fallback_indices.append(i)
@@ -160,36 +156,21 @@ async def batch_analyze(file: UploadFile = File(...)):
 
     model_results = await asyncio.gather(*tasks)
 
-    for idx, model_result in zip(fallback_indices, model_results):
+    for idx, res in zip(fallback_indices, model_results):
         text = texts[idx]
-        if model_result is None:
+        if res is None:
             sentiment = "Neutral"
             confidence = 0.0
         else:
-            raw_label = model_result.get("label", "").upper()
-            score = model_result.get("score", 0)
-            if score < 0.6:
-                sentiment = "Neutral"
-            else:
-                if raw_label == "POSITIVE":
-                    sentiment = "Positive"
-                elif raw_label == "NEGATIVE":
-                    sentiment = "Negative"
-                else:
-                    sentiment = "Neutral"
-            confidence = round(score * 100, 2)
-
-        results[idx] = {
-            "text": text,
-            "sentiment": sentiment,
-            "confidence": confidence
-        }
+            sentiment = res.get("label", "Neutral").capitalize()
+            confidence = round(res.get("score", 0) * 100, 2)
+        results[idx] = {"text": text, "sentiment": sentiment, "confidence": confidence}
 
     history.extend(results)
 
     return {"results": results}
 
+# History endpoint (last 50 entries)
 @app.get("/history")
 def get_history():
     return {"history": history[-50:]}
-
