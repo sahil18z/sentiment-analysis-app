@@ -10,6 +10,8 @@
 fastapi
 uvicorn[standard]
 transformers
+onnxruntime
+optimum
 pydantic
 python-multipart
 chardet

@@ -194,7 +194,6 @@
 #     return {"history": history[-50:]}
 
 
-
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -205,7 +204,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import os
 
-# ONNX Runtime
+# Hugging Face CPU pipeline
 from transformers import pipeline
 
 app = FastAPI()
@@ -251,20 +250,17 @@ def load_word_list(file_path):
 def startup_event():
     global sentiment_pipeline, positive_words, negative_words
 
-    # Correct ONNX pipeline initialization
+    # CPU-only pipeline
     sentiment_pipeline = pipeline(
         "sentiment-analysis",
         model="distilbert-base-uncased-finetuned-sst-2-english",
-        framework="pt",  # Use PyTorch for local inference
-        device=-1        # CPU
+        device=-1  # CPU
     )
 
     positive_words = load_word_list(os.path.join(BASE_DIR, "lexicon/positive-words.txt"))
     negative_words = load_word_list(os.path.join(BASE_DIR, "lexicon/negative-words.txt"))
 
-# ... rest of your code (basic_sentiment_logic, async_sentiment_analysis, endpoints) remains unchanged
-
-
+# Basic logic for quick sentiment check
 def basic_sentiment_logic(text: str):
     text_lower = text.lower()
     tokens = set(text_lower.split())
@@ -288,11 +284,13 @@ def basic_sentiment_logic(text: str):
 
     return None, None  # fallback to model
 
+# Async wrapper
 async def async_sentiment_analysis(text: str):
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(executor, sentiment_pipeline, text)
     return result[0] if result else None
 
+# Single text endpoint
 @app.post("/analyze")
 async def analyze_sentiment(data: TextData):
     if sentiment_pipeline is None:
@@ -306,21 +304,15 @@ async def analyze_sentiment(data: TextData):
 
         raw_label = result.get("label", "").upper()
         score = result.get("score", 0)
-
+        sentiment = "Positive" if raw_label == "POSITIVE" else "Negative"
         if score < 0.6:
             sentiment = "Neutral"
-        else:
-            sentiment = "Positive" if raw_label == "POSITIVE" else "Negative"
         confidence = round(score * 100, 2)
 
-    history.append({
-        "text": data.text,
-        "sentiment": sentiment,
-        "confidence": confidence
-    })
-
+    history.append({"text": data.text, "sentiment": sentiment, "confidence": confidence})
     return {"sentiment": sentiment, "confidence": confidence}
 
+# CSV batch endpoint
 @app.post("/batch_analyze")
 async def batch_analyze(file: UploadFile = File(...)):
     if sentiment_pipeline is None:
@@ -345,11 +337,7 @@ async def batch_analyze(file: UploadFile = File(...)):
     for i, text in enumerate(texts):
         sentiment, confidence = basic_sentiment_logic(text)
         if sentiment is not None:
-            results.append({
-                "text": text,
-                "sentiment": sentiment,
-                "confidence": confidence
-            })
+            results.append({"text": text, "sentiment": sentiment, "confidence": confidence})
         else:
             results.append(None)
             fallback_indices.append(i)
@@ -360,26 +348,21 @@ async def batch_analyze(file: UploadFile = File(...)):
     for idx, model_result in zip(fallback_indices, model_results):
         text = texts[idx]
         if model_result is None:
-            sentiment = "Neutral"
-            confidence = 0.0
+            sentiment, confidence = "Neutral", 0.0
         else:
             raw_label = model_result.get("label", "").upper()
             score = model_result.get("score", 0)
+            sentiment = "Positive" if raw_label == "POSITIVE" else "Negative"
             if score < 0.6:
                 sentiment = "Neutral"
-            else:
-                sentiment = "Positive" if raw_label == "POSITIVE" else "Negative"
             confidence = round(score * 100, 2)
 
-        results[idx] = {
-            "text": text,
-            "sentiment": sentiment,
-            "confidence": confidence
-        }
+        results[idx] = {"text": text, "sentiment": sentiment, "confidence": confidence}
 
     history.extend(results)
     return {"results": results}
 
+# Get last 50 entries
 @app.get("/history")
 def get_history():
     return {"history": history[-50:]}
