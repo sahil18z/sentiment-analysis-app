@@ -49,12 +49,6 @@ pip install -r requirements.txt
 3. Run the API server:
 4. The frontend will communicate with this API for sentiment predictions.
 
-## Deployment
-The app is deployed and publicly accessible at:  
-[https://your-app-link.netlify.app](https://your-app-link.netlify.app)  
-
-(If you have a backend API, include its deployed URL here as well.)
-
 ## Resources and Acknowledgements
 - Pre-trained sentiment models from [Hugging Face](https://huggingface.co/)
 - TensorFlow.js for in-browser model execution
